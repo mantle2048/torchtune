@@ -20,6 +20,27 @@ llama2 7B model.
 """
 
 
+def tinyllama() -> TransformerDecoder:
+    """
+    Builder for creating a tinyllama model initialized w/ the default 1.1B parameter values
+    from https://github.com/jzhang38/TinyLlama
+
+    Returns:
+        TransformerDecoder: Instantiation of Llama2 1.1B model
+    """
+    return llama2(
+        vocab_size=32_000,
+        num_layers=22,
+        num_heads=32,
+        num_kv_heads=4,
+        embed_dim=2048,
+        attn_dropout=0.0,
+        norm_eps=1e-5,
+        max_seq_len=2048,
+        intermediate_dim=5632
+    )
+
+
 def llama2_7b() -> TransformerDecoder:
     """
     Builder for creating a Llama2 model initialized w/ the default 7B parameter values
