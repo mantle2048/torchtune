@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-CKPT_PATH="/data/ckpts/TinyLlama-1.1B-Chat-v1.0"
+CKPT_PATH="/path/to/your/model"
 
 tune run --nproc_per_node 1 full_finetune_distributed \
   --config llama2/1.1B_full \

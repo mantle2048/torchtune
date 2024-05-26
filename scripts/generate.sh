@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-CKPT_PATH="/data/ckpts/TinyLlama-1.1B-Chat-v1.0"
+CKPT_PATH="/path/to/your/model"
 
 QUESTION="Please tell me a short story."
 
