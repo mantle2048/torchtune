@@ -17,6 +17,7 @@ from omegaconf import DictConfig, ListConfig
 from torch import nn
 from torch.distributed import init_process_group
 from torch.distributed.fsdp import (
+    CPUOffload,
     FullOptimStateDictConfig,
     FullStateDictConfig,
     FullyShardedDataParallel as FSDP,
@@ -103,6 +104,15 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
                 "full fp16 training is not supported with this recipe. Please use bf16 or fp32 instead."
             )
 
+        if (
+            cfg.get("fsdp_cpu_offload", False)
+            and cfg.get("fused", False)
+            and not utils.torch_version_ge("2.4.0")
+        ):
+            raise RuntimeError(
+                "Using fused optimizer on CPU is only supported in PyTorch nightly."
+            )
+
         # logging attributes
         self._output_dir = cfg.output_dir
         self._log_every_n_steps = cfg.get("log_every_n_steps", 1)
@@ -144,27 +154,41 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
         """
         Updates the recipe state from checkpoint.
         """
-        # If seed, total_epoch or max_steps_per_epoch don't match,
-        # warn the user and overwrite
         try:
-            if (
-                self.seed != ckpt_dict[utils.SEED_KEY]
-                or self.total_epochs != ckpt_dict[utils.TOTAL_EPOCHS_KEY]
-                or self.max_steps_per_epoch != ckpt_dict[utils.MAX_STEPS_KEY]
-            ):
-                warn(
-                    message="""Configured value for seed, epochs or max_steps_per_epoch
-                    does not match the value stored in checkpoint."""
-                )
-            self.seed = utils.set_seed(seed=ckpt_dict[utils.SEED_KEY])
             self.epochs_run = ckpt_dict[utils.EPOCHS_KEY]
-            self.total_epochs = ckpt_dict[utils.TOTAL_EPOCHS_KEY]
-            self.max_steps_per_epoch = ckpt_dict[utils.MAX_STEPS_KEY]
+
+            # on mismatch, warn the user and prevent the override
+            if self.seed != ckpt_dict[utils.SEED_KEY]:
+                warn(
+                    message=(
+                        "Config value for seed does not match the checkpoint value, "
+                        f"using the checkpoint value: {ckpt_dict[utils.SEED_KEY]}"
+                    )
+                )
+                self.seed = ckpt_dict[utils.SEED_KEY]
+            if self.max_steps_per_epoch != ckpt_dict[utils.MAX_STEPS_KEY]:
+                warn(
+                    message=(
+                        "Config value for max_steps_per_epoch does not match the checkpoint value, "
+                        f"using the checkpoint value: {ckpt_dict[utils.MAX_STEPS_KEY]}"
+                    )
+                )
+                self.max_steps_per_epoch = ckpt_dict[utils.MAX_STEPS_KEY]
+
+            # on mismatch, warn the user but allow the override
+            if self.total_epochs != ckpt_dict[utils.TOTAL_EPOCHS_KEY]:
+                warn(
+                    message=(
+                        "Config value for total_epochs does not match the checkpoint value, "
+                        f"using the config value: {self.total_epochs}"
+                    )
+                )
+
         except KeyError as e:
-            raise KeyError from e(
-                "Checkpoint does not contain the required keys needed for updating recipe state."
+            raise KeyError(
+                "Checkpoint does not contain the required keys needed for updating recipe state. "
                 "Are you sure you passed in the right recipe checkpoint?"
-            )
+            ) from e
 
     def setup(self, cfg: DictConfig) -> None:
         """
@@ -186,6 +210,7 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
             cfg_model=cfg.model,
             enable_activation_checkpointing=cfg.enable_activation_checkpointing,
             memory_efficient_fsdp_wrap=cfg.get("memory_efficient_fsdp_wrap", False),
+            fsdp_cpu_offload=cfg.get("fsdp_cpu_offload", False),
             model_state_dict=ckpt_dict[utils.MODEL_KEY],
             ac_mode=cfg.get("ac_mode", None),
             ac_option=cfg.get("ac_option", None),
@@ -234,6 +259,7 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
         cfg_model: DictConfig,
         enable_activation_checkpointing: bool,
         memory_efficient_fsdp_wrap: bool,
+        fsdp_cpu_offload: bool,
         model_state_dict: Dict[str, Any],
         ac_mode: Optional[str] = None,
         ac_option: Optional[int] = None,
@@ -296,6 +322,7 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
                 memory_efficient_fsdp_wrap=memory_efficient_fsdp_wrap,
                 modules_to_wrap={modules.TransformerDecoderLayer},
             ),
+            cpu_offload=CPUOffload(offload_params=fsdp_cpu_offload),
             sharding_strategy=torch.distributed.fsdp.ShardingStrategy.FULL_SHARD,
             device_id=self._device,
             # this recipe does not currently support mixed precision training
@@ -340,8 +367,8 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
         optimizer = config.instantiate(cfg_optimizer, self._model.parameters())
 
         if opt_state_dict:
-            opt_state_dict = utils.transform_opt_state_dict(
-                opt_state_dict, self._model, optimizer
+            opt_state_dict = FSDP.optim_state_dict_to_load(
+                self._model, optimizer, opt_state_dict
             )
             optimizer.load_state_dict(opt_state_dict)
 
@@ -563,6 +590,10 @@ def recipe_main(cfg: DictConfig) -> None:
         )
 
     init_process_group(backend="gloo" if cfg.device == "cpu" else "nccl")
+    if cfg.get("fsdp_cpu_offload", False):
+        # Utilize all available CPU cores for intra-op parallelism. This provides ~2x
+        # speed up when benchmarking fused AdamW on CPU
+        utils.set_torch_num_threads()
 
     config.log_config(recipe_name="FullFinetuneRecipeDistributed", cfg=cfg)
 
