@@ -1,0 +1,7 @@
+def scale_hidden_dim_for_mlp(dim: int, multiple_of: int = 256) -> int:
+    # Scale hidden dimension by (2/3)4d for SwiGLU to keep number of
+    # parameters and computation constant
+    hidden_dim = 4 * int(2 * dim / 3)
+    # Round hidden dimension to nearest multiple of `multiple_of`
+    hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
+    return hidden_dim
