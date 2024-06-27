@@ -25,6 +25,9 @@ class ChameleonTokenManager:
             cfg_path=vqgan_cfg_path, ckpt_path=vqgan_ckpt_path, device=device
         )
 
+        # During generation, stop when eos_id is encountered
+        self.stop_tokens = [self.vocab.eos_id]
+
     def pil_from_bpe_tokens(self, bpe_tokens: torch.Tensor) -> Image.Image:
         image_tensor = self.translation.convert_bpe2img(bpe_tokens)
         if image_tensor.shape[0] < 1024:

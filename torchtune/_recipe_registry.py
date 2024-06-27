@@ -198,6 +198,14 @@ _ALL_RECIPES = [
         supports_distributed=False,
     ),
     Recipe(
+        name="mm_generate",
+        file_path="mm_generate.py",
+        configs=[
+            Config(name="mm_generation", file_path="mm_generation.yaml"),
+        ],
+        supports_distributed=False,
+    ),
+    Recipe(
         name="eleuther_eval",
         file_path="eleuther_eval.py",
         configs=[

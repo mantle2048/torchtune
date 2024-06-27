@@ -1,0 +1,39 @@
+# Config for running the InferenceRecipe in generate.py to generate output from an LLM
+#
+# To launch, run the following command from root torchtune directory:
+#    tune run mm_generate --config mm_generation
+
+# Model arguments
+model:
+  _component_: torchtune.models.chameleon.chameleon_7b
+
+checkpointer:
+  _component_: torchtune.utils.FullModelMetaCheckpointer
+  checkpoint_dir: /tmp/chameleon-7b/
+  checkpoint_files: [consolidated.pth]
+  output_dir: /tmp/chameleon-7b/
+  model_type: CHAMELEON
+
+device: cuda
+dtype: bf16
+
+seed: 1234
+
+# Tokenizer arguments
+token_manager:
+  _component_: torchtune.models.chameleon.chameleon_token_manager
+  tokenizer_path: /tmp/chameleon-7b/tokenizer/text_tokenizer.json
+  vqgan_cfg_path: /tmp/chameleon-7b/tokenizer/vqgan.yaml
+  vqgan_ckpt_path: /tmp/chameleon-7b/tokenizer/vqgan.ckpt
+  device: cuda
+
+
+# Generation arguments; defaults taken from gpt-fast
+prompt: "Hello, my name is"
+instruct_template: null
+chat_format: null
+max_new_tokens: 300
+temperature: 0.6 # 0.8 and 0.6 are popular values to try
+top_k: 300
+
+quantizer: null
