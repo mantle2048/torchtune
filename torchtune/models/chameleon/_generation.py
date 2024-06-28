@@ -8,6 +8,11 @@ from typing import Callable, List, Optional
 
 import torch
 
+from torchtune.models.chameleon._model_utils import (
+    allowed_modality_logits_process,
+    disallow_begin_image_logits_process,
+)
+from torchtune.models.chameleon._vocab import VocabInfo
 from torchtune.modules import TransformerDecoder
 
 
@@ -39,6 +44,8 @@ def generate_next_token(
     model: TransformerDecoder,
     input_pos: torch.Tensor,
     x: torch.Tensor,
+    vocab: VocabInfo,
+    modality: str,
     temperature: float = 1.0,
     top_k: Optional[int] = None,
 ) -> torch.Tensor:
@@ -46,6 +53,11 @@ def generate_next_token(
     # model produces logits in [bsz, seq_length, vocab_size]
     # we want to take the last token's logits as the input to the next model call
     logits = model(x, input_pos=input_pos)[:, -1]
+
+    logits = allowed_modality_logits_process(logits, vocab, modality)
+    if x.shape[1] >= 4096 - (1024 + 2):
+        disallow_begin_image_logits_process(logits, vocab)
+
     return sample(logits, temperature, top_k)
 
 
@@ -67,41 +79,13 @@ def generate(
     prompt: torch.Tensor,
     *,
     max_generated_tokens: int,
+    vocab: VocabInfo,
     pad_id: int = 0,
     temperature: float = 1.0,
     top_k: Optional[int] = None,
-    stop_tokens: Optional[List[int]] = None,
+    stop_tokens: Optional[torch.Tensor] = None,
     custom_generate_next_token: Optional[Callable] = None,
 ) -> List[List[int]]:
-    """
-    Generates tokens from a model conditioned on a prompt.
-
-    Args:
-        model (TransformerDecoder): model used for generation
-        prompt (torch.Tensor): tensor with the token IDs associated with the given prompt,
-            with shape either [seq_length] or [bsz x seq_length]
-        max_generated_tokens (int): number of tokens to be generated
-        pad_id (int): token ID to use for padding, default 0.
-        temperature (float): value to scale the predicted logits by, default 1.0.
-        top_k (Optional[int]): If specified, we prune the sampling to only token ids within the top_k probabilities,
-            default None.
-        stop_tokens (Optional[List[int]]): If specified, generation is stopped when any of these tokens are generated,
-            default None.
-        custom_generate_next_token (Optional[Callable]): If specified, we'll use the ``custom_generate_next_token function``.
-            This is generally only useful if you want to specify a ``torch.compile`` version of the generate next token for
-            performance reasons. If None, we use the default ``generate_next_token`` function. Default is None.
-
-    Examples:
-        >>> model = torchtune.models.llama3.llama3_8b()
-        >>> tokenizer = torchtune.models.llama3.llama3_tokenizer()
-        >>> prompt = tokenizer("Hi my name is")
-        >>> output = generate(model, prompt, max_generated_tokens=100)
-        >>> print(tokenizer.decode(output[0]))
-        Hi my name is Jeremy and I'm a friendly language model assistant!
-
-    Returns:
-        List[List[int]]: collection of lists of generated tokens
-    """
     prompt = prompt.view(1, -1) if prompt.ndim == 1 else prompt
     # convert stop tokens to tensor for easy matching
     stop_tokens = (
@@ -117,6 +101,7 @@ def generate(
         (bsz, prompt_length + 1), dtype=torch.int32, device=prompt.device
     )
 
+    modality = "txt"
     if custom_generate_next_token is None:
         custom_generate_next_token = generate_next_token
 
@@ -127,6 +112,8 @@ def generate(
         x=prompt,
         temperature=temperature,
         top_k=top_k,
+        vocab=vocab,
+        modality=modality,
     )
     generated_tokens = torch.cat([generated_tokens, tokens], dim=-1)
 
@@ -149,7 +136,13 @@ def generate(
             )
 
         tokens = custom_generate_next_token(
-            model, input_pos=input_pos, x=tokens, temperature=temperature, top_k=top_k
+            model,
+            input_pos=input_pos,
+            x=tokens,
+            temperature=temperature,
+            top_k=top_k,
+            vocab=vocab,
+            modality=modality,
         )
 
         generated_tokens = torch.cat([generated_tokens, tokens], dim=-1)

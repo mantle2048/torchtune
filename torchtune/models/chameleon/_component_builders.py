@@ -3,9 +3,14 @@ from typing import Optional
 from torch import nn
 
 from torchtune.models.chameleon._model_utils import scale_hidden_dim_for_mlp
-from torchtune.modules import (CausalSelfAttention, FeedForward, RMSNorm,
-                               RotaryPositionalEmbeddings, TransformerDecoder,
-                               TransformerDecoderLayer)
+from torchtune.models.chameleon.attention import ChameleonCausalSelfAttention
+from torchtune.modules import (
+    FeedForward,
+    RMSNorm,
+    RotaryPositionalEmbeddings,
+    TransformerDecoder,
+    TransformerDecoderLayer,
+)
 
 
 def chameleon(
@@ -18,12 +23,13 @@ def chameleon(
     attn_dropout: float = 0.0,
     intermediate_dim: Optional[int] = None,
     norm_eps: float = 1e-5,
+    qk_normalization: bool = False,
 ) -> TransformerDecoder:
     head_dim = embed_dim // num_heads
     num_kv_heads = num_kv_heads if num_kv_heads else num_heads
 
     rope = RotaryPositionalEmbeddings(dim=head_dim, max_seq_len=max_seq_len)
-    self_attn = CausalSelfAttention(
+    self_attn = ChameleonCausalSelfAttention(
         embed_dim=embed_dim,
         num_heads=num_heads,
         num_kv_heads=num_kv_heads,
@@ -36,6 +42,7 @@ def chameleon(
         kv_cache=None,
         max_seq_len=max_seq_len,
         attn_dropout=attn_dropout,
+        qk_normalization=qk_normalization,
     )
 
     hidden_dim = (

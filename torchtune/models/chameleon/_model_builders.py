@@ -14,6 +14,7 @@ def chameleon_7b() -> TransformerDecoder:
         intermediate_dim=11_008,
         attn_dropout=0.0,
         norm_eps=1e-5,
+        qk_normalization=True,
     )
 
 

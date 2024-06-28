@@ -201,7 +201,7 @@ _ALL_RECIPES = [
         name="mm_generate",
         file_path="mm_generate.py",
         configs=[
-            Config(name="mm_generation", file_path="mm_generation.yaml"),
+            Config(name="chameleon/generation", file_path="chameleon/generation.yaml"),
         ],
         supports_distributed=False,
     ),

@@ -25,7 +25,7 @@ token_manager:
   tokenizer_path: /tmp/chameleon-7b/tokenizer/text_tokenizer.json
   vqgan_cfg_path: /tmp/chameleon-7b/tokenizer/vqgan.yaml
   vqgan_ckpt_path: /tmp/chameleon-7b/tokenizer/vqgan.ckpt
-  device: cuda
+  device: ${device}
 
 
 # Generation arguments; defaults taken from gpt-fast

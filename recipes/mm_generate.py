@@ -9,13 +9,13 @@ import time
 from typing import Any, Dict, List, Optional, Union
 
 import torch
-from omegaconf import DictConfig
+from omegaconf import DictConfig, ListConfig
 
 from torchtune import config, utils
 from torchtune.config._utils import _get_component_from_path
 from torchtune.data import ChatFormat, InstructTemplate, Message
+from torchtune.models.chameleon._generation import generate as chameleon_generate
 from torchtune.modules.transformer import TransformerDecoder
-from torchtune.utils._generation import generate_next_token
 
 logger = utils.get_logger("DEBUG")
 
@@ -71,7 +71,7 @@ class MMInferenceRecipe:
 
     def convert_prompt_to_tokens(
         self,
-        prompt: Union[DictConfig, List[Dict], str],
+        prompt: Union[DictConfig, ListConfig, str],
         chat_format_name: Optional[str],  # ChatFormat
         instruct_template_name: Optional[str],  # InstructTemplate
     ) -> List[int]:
@@ -124,36 +124,38 @@ class MMInferenceRecipe:
         if self._quantization_mode is not None:
             logger.info("Starting compilation to improve generation performance ...")
             custom_generate_next_token = torch.compile(
-                generate_next_token, mode="max-autotune", fullgraph=True
+                custom_generate_next_token, mode="max-autotune", fullgraph=True
             )
             t0 = time.perf_counter()
-            _ = utils.generate(
+            _ = chameleon_generate(
                 model=self._model,
                 prompt=prompt,
                 max_generated_tokens=2,
                 temperature=cfg.temperature,
                 top_k=cfg.top_k,
                 stop_tokens=self._token_manager.stop_tokens,
-                pad_id=self._token_manager.pad_id,
+                pad_id=self._token_manager.vocab.pad_id,
+                vocab=self._token_manager.vocab,
                 custom_generate_next_token=custom_generate_next_token,
             )
             t = time.perf_counter() - t0
             logger.info(f"Warmup run for quantized model takes: {t:.02f} sec")
 
         t0 = time.perf_counter()
-        generated_tokens = utils.generate(
+        generated_tokens = chameleon_generate(
             model=self._model,
             prompt=prompt,
             max_generated_tokens=cfg.max_new_tokens,
             temperature=cfg.temperature,
             top_k=cfg.top_k,
-            stop_tokens=self._token_manager.vocab.stop_tokens,
+            stop_tokens=self._token_manager.stop_tokens,
             pad_id=self._token_manager.vocab.pad_id,
+            vocab=self._token_manager.vocab,
             custom_generate_next_token=custom_generate_next_token,
         )
         t = time.perf_counter() - t0
 
-        logger.info(self._token_manager.decode(generated_tokens[0]))
+        logger.info(self._token_manager.decode_text(generated_tokens))
 
         model_size = sum(
             [

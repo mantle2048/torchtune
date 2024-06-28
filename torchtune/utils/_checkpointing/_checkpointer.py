@@ -7,15 +7,15 @@
 import gc
 import json
 import os
-
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol
 
 import torch
 from safetensors.torch import save_file
-from torchtune import utils
 
+from torchtune import utils
 from torchtune.models import convert_weights
+from torchtune.models.chameleon import chameleon_meta_to_tune, chameleon_tune_to_meta
 from torchtune.models.gemma import gemma_hf_to_tune, gemma_tune_to_hf
 from torchtune.models.mistral import (
     mistral_reward_hf_to_tune,
@@ -23,8 +23,8 @@ from torchtune.models.mistral import (
 )
 from torchtune.models.phi3 import phi3_hf_to_tune, phi3_tune_to_hf
 from torchtune.utils._checkpointing._checkpointer_utils import (
-    get_path,
     ModelType,
+    get_path,
     safe_torch_load,
     save_config,
 )
@@ -651,7 +651,7 @@ class FullModelMetaCheckpointer(_CheckpointerInterface):
         )
 
         self._resume_from_checkpoint = resume_from_checkpoint
-        self._model_type = model_type
+        self._model_type = ModelType[str(model_type)]
         self._output_dir = Path(output_dir)
 
         # recipe_checkpoint contains the recipe state. This should be available if
@@ -670,7 +670,10 @@ class FullModelMetaCheckpointer(_CheckpointerInterface):
         """
         state_dict: Dict[str:Any] = {}
         model_state_dict = safe_torch_load(self._checkpoint_path)
-        state_dict[utils.MODEL_KEY] = convert_weights.meta_to_tune(model_state_dict)
+        if self._model_type == ModelType.CHAMELEON:
+            state_dict[utils.MODEL_KEY] = chameleon_meta_to_tune(model_state_dict)
+        else:
+            state_dict[utils.MODEL_KEY] = convert_weights.meta_to_tune(model_state_dict)
 
         if self._adapter_checkpoint:
             adapter_state_dict = safe_torch_load(self._adapter_checkpoint)
@@ -700,7 +703,10 @@ class FullModelMetaCheckpointer(_CheckpointerInterface):
         """
         self._output_dir.mkdir(exist_ok=True)
         model_state_dict = state_dict[utils.MODEL_KEY]
-        state_dict[utils.MODEL_KEY] = convert_weights.tune_to_meta(model_state_dict)
+        if self._model_type == ModelType.CHAMELEMON:
+            state_dict[utils.MODEL_KEY] = chameleon_tune_to_meta(model_state_dict)
+        else:
+            state_dict[utils.MODEL_KEY] = convert_weights.tune_to_meta(model_state_dict)
 
         # Output file is always a .pt file with the epoch number in the name
         checkpoint_file = Path.joinpath(
