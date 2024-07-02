@@ -7,13 +7,34 @@
 from typing import Callable, List, Optional
 
 import torch
+from torch import Tensor
 
-from torchtune.models.chameleon._model_utils import (
-    allowed_modality_logits_process,
-    disallow_begin_image_logits_process,
-)
 from torchtune.models.chameleon._vocab import VocabInfo
 from torchtune.modules import TransformerDecoder
+
+
+def allowed_modality_logits_process(
+    logits: Tensor,
+    vocab: VocabInfo,
+    modality: str,
+) -> Tensor:
+    if modality == "text":
+        token_ids = [vocab.eos_id] + vocab.text_tokens + [vocab.begin_image]
+    elif modality == "image":
+        token_ids = vocab.image_tokens
+    else:
+        raise ValueError(f"Disallowed Modality {modality}")
+
+    replacement = torch.full_like(logits, -torch.inf)
+    replacement[:, token_ids] = logits[:, token_ids]
+    logits[:] = replacement
+    return logits
+
+
+def disallow_begin_image_logits_process(logits: Tensor, vocab: VocabInfo) -> Tensor:
+    disallowed_tokens = [vocab.begin_image]
+    logits[:, disallowed_tokens] = -torch.inf
+    return logits
 
 
 def multinomial_sample_one(probs: torch.Tensor) -> torch.Tensor:
@@ -46,6 +67,7 @@ def generate_next_token(
     x: torch.Tensor,
     vocab: VocabInfo,
     modality: str,
+    image_gen_count: int = 0,
     temperature: float = 1.0,
     top_k: Optional[int] = None,
 ) -> torch.Tensor:
@@ -53,6 +75,10 @@ def generate_next_token(
     # model produces logits in [bsz, seq_length, vocab_size]
     # we want to take the last token's logits as the input to the next model call
     logits = model(x, input_pos=input_pos)[:, -1]
+
+    if image_gen_count == 1024:
+        logits = torch.full(logits.shape, -torch.inf, device=logits.device)
+        logits[:, vocab.end_image] = 0
 
     logits = allowed_modality_logits_process(logits, vocab, modality)
     if x.shape[1] >= 4096 - (1024 + 2):
@@ -101,9 +127,11 @@ def generate(
         (bsz, prompt_length + 1), dtype=torch.int32, device=prompt.device
     )
 
-    modality = "txt"
     if custom_generate_next_token is None:
         custom_generate_next_token = generate_next_token
+
+    modality = "text"
+    image_gen_count = 0
 
     # generate the first tokens conditioned on the prompt
     tokens = generate_next_token(
@@ -111,11 +139,19 @@ def generate(
         input_pos=torch.arange(0, prompt_length, device=prompt.device),
         x=prompt,
         temperature=temperature,
+        image_gen_count=image_gen_count,
         top_k=top_k,
         vocab=vocab,
         modality=modality,
     )
     generated_tokens = torch.cat([generated_tokens, tokens], dim=-1)
+
+    if modality == "image":
+        image_gen_count += 1
+    if tokens.item() == vocab.begin_image:
+        modality = "image"
+    elif tokens.item() == vocab.end_image:
+        modality = "text"
 
     # stop early if we reach a stop token in every seq
     if stop_tokens is not None:
@@ -140,6 +176,7 @@ def generate(
             input_pos=input_pos,
             x=tokens,
             temperature=temperature,
+            image_gen_count=image_gen_count,
             top_k=top_k,
             vocab=vocab,
             modality=modality,
@@ -147,6 +184,13 @@ def generate(
 
         generated_tokens = torch.cat([generated_tokens, tokens], dim=-1)
         input_pos += 1
+
+        if modality == "image":
+            image_gen_count += 1
+        if tokens.item() == vocab.begin_image:
+            modality = "image"
+        elif tokens.item() == vocab.end_image:
+            modality = "text"
 
         if stop_tokens is not None:
             stop_token_reached = update_stop_tokens_tracker(

@@ -43,6 +43,9 @@ class MMInferenceRecipe:
             model_cfg=cfg.model,
             model_state_dict=ckpt_dict[utils.MODEL_KEY],
         )
+        import ipdb
+
+        ipdb.set_trace()
         self._token_manager = config.instantiate(cfg.token_manager)
 
     def _setup_model(
@@ -93,9 +96,9 @@ class MMInferenceRecipe:
         # To hit this block, either the raw prompt is a string or an
         # instruct template has been provided to convert it to a string
         if isinstance(prompt, str):
-            return self._token_manager.tokenize_text(
-                prompt, add_bos=True, add_eos=False
-            )
+            return [
+                self._token_manager.vocab.bos_id
+            ] + self._token_manager.tokenize_text(prompt)
 
         # dict.items() will respect order for Python >= 3.7
         elif isinstance(prompt, DictConfig):

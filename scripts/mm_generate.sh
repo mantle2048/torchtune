@@ -8,10 +8,12 @@ QUESTION="Please tell me a short story."
 
 PROMPT='[
     {"type": "image", "value": "file:./data/red_flower.png"},
-    {"type": "text", "value": "What do you see?"},
+    {"type": "text", "value": "Tell me the color of the flower?"},
 ]'
 
-    # {"type": "sentinel", "value": "<END-OF-TURN>"}
+# {"type": "sentinel", "value": "<END-OF-TURN>"}
+PROMPT="Draw a flower."
+PROMPT="Hi, how are you today?"
 tune run mm_generate \
   --config "chameleon/generation" \
   model._component_="torchtune.models.chameleon.chameleon_7b" \
