@@ -3,15 +3,13 @@
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
-from typing import List
 from functools import partial
+from typing import List
 
 from torchtune.models.llama2._component_builders import llama2, lora_llama2
-
+from torchtune.models.llama2._tokenizer import Llama2Tokenizer
 from torchtune.modules import TransformerDecoder
-from torchtune.modules.tokenizers import SentencePieceTokenizer
 from torchtune.modules.peft import LORA_ATTN_MODULES
-
 
 """
 Model builders build specific instantiations using component builders. For example
@@ -37,7 +35,7 @@ def tinyllama() -> TransformerDecoder:
         attn_dropout=0.0,
         norm_eps=1e-5,
         max_seq_len=2048,
-        intermediate_dim=5632
+        intermediate_dim=5632,
     )
 
 
@@ -61,7 +59,7 @@ def llama2_7b() -> TransformerDecoder:
     )
 
 
-def llama2_tokenizer(path: str) -> SentencePieceTokenizer:
+def llama2_tokenizer(path: str) -> Llama2Tokenizer:
     """
     Tokenizer for Llama2.
 
@@ -69,12 +67,9 @@ def llama2_tokenizer(path: str) -> SentencePieceTokenizer:
         path (str): path to the tokenizer
 
     Returns:
-        SentencePieceTokenizer: Instantiation of the Llama2 tokenizer
+        Llama2Tokenizer: Instantiation of the Llama2 tokenizer
     """
-    tokenizer = SentencePieceTokenizer(path)
-    # Original tokenizer has no pad_id, which causes indexing errors when batch training
-    tokenizer.pad_id = 0
-    return tokenizer
+    return Llama2Tokenizer(path)
 
 
 def lora_llama2_7b(
@@ -287,6 +282,7 @@ def lora_llama2_70b(
         lora_dropout=lora_dropout,
         quantize_base=quantize_base,
     )
+
 
 qlora_llama2_70b = partial(lora_llama2_70b, quantize_base=True)
 qlora_llama2_70b.__doc__ = """
