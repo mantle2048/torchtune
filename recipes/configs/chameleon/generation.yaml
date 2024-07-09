@@ -14,7 +14,7 @@ checkpointer:
   output_dir: /tmp/chameleon-7b/
   model_type: CHAMELEON
 
-device: cuda
+device: cpu
 dtype: bf16
 
 seed: 1234
@@ -45,6 +45,6 @@ options:
     cfg_scale_image: 1.2
     temperature: 0.6 # 0.8 and 0.6 are popular values to try
     top_k: 300
-    enable: true
+    enable: false
 
 quantizer: null

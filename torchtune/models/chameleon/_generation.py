@@ -4,8 +4,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Callable
-
 import torch
 from omegaconf import DictConfig
 from torch import Tensor
@@ -23,13 +21,6 @@ def allowed_modality_logits_process(
         token_ids = [vocab.eos_id] + vocab.text_tokens + [vocab.begin_image]
     elif modality == "image":
         token_ids = vocab.image_tokens
-    elif modality == "mix":
-        token_ids = (
-            [vocab.eos_id]
-            + [vocab.begin_image]
-            + vocab.text_tokens
-            + vocab.image_tokens
-        )
     else:
         raise ValueError(f"Disallowed Modality {modality}")
 
@@ -100,6 +91,7 @@ def update_stop_tokens_tracker(
 ) -> torch.Tensor:
     """Updates which sequences have reached a stop token."""
     # tokens: [bsz, 1]
+
     # stop_tokens: [num_stop_tokens]
     # stop_token_reached: [bsz]
     stop_token_reached_curr = torch.isin(tokens, stop_tokens).flatten()
@@ -117,7 +109,6 @@ def generate(
     options: DictConfig,
     pad_id: int,
     stop_tokens: torch.Tensor,
-    custom_generate_next_token: Callable | None = None,  # type: ignore[reportMissingTypeArgument]
 ) -> list[list[int]]:
     prompt = prompt.view(1, -1) if prompt.ndim == 1 else prompt
     # convert stop tokens to tensor for easy matching
@@ -132,17 +123,11 @@ def generate(
         (bsz, prompt_length + 1), dtype=torch.int32, device=prompt.device
     )
 
-    if custom_generate_next_token is None:
-        custom_generate_next_token = generate_next_token
-
-    if not options.image.enable and options.text.enable:
-        modality = "text"
-    elif options.image.enable and not options.text.enable:
+    if not options.text.enable:
         modality = "image"
-    elif options.image.enable and options.text.enable:
-        modality = "mix"
     else:
-        raise ValueError("Should enable at least one modality (text, image).")
+        modality = "text"
+
     image_gen_count = 0
 
     # generate the first tokens conditioned on the prompt
@@ -160,15 +145,11 @@ def generate(
 
     if tokens.item() in vocab.image_tokens:
         image_gen_count += 1
+    elif tokens.item() == vocab.begin_image:
         modality = "image"
-    if tokens.item() == vocab.begin_image:
-        if stop_tokens and vocab.begin_image not in stop_tokens:
-            modality = "image"
-    elif tokens.item() in vocab.image_tokens:
-        image_gen_count += 1
-        modality = "image"
-    else:
-        pass
+    elif tokens.item() == vocab.end_image:
+        image_gen_count = 0
+        modality = "text"
 
     # stop early if we reach a stop token in every seq
     stop_token_reached = update_stop_tokens_tracker(
@@ -186,10 +167,10 @@ def generate(
             [stop_token_mask, ~stop_token_reached.reshape(bsz, 1)], dim=-1
         )
 
-        tokens = custom_generate_next_token(
+        tokens = generate_next_token(
             model,
             input_pos=input_pos,
-            x=tokens,  # type: ignore[reportUnknownArgumentType]
+            x=tokens,
             temperature=options[modality]["temperature"],
             top_k=options[modality]["top_k"],
             image_gen_count=image_gen_count,
@@ -200,15 +181,18 @@ def generate(
         generated_tokens = torch.cat([generated_tokens, tokens], dim=-1)
         input_pos += 1
 
-        if modality == "image":
+        if tokens.item() in vocab.image_tokens:
             image_gen_count += 1
-        if tokens.item() == vocab.begin_image:
+        elif tokens.item() == vocab.begin_image:
             modality = "image"
         elif tokens.item() == vocab.end_image:
+            image_gen_count = 0
             modality = "text"
 
         stop_token_reached = update_stop_tokens_tracker(
-            tokens, stop_tokens, stop_token_reached  # type: ignore[reportUnknownArgumentType]
+            tokens,
+            stop_tokens,
+            stop_token_reached,
         )
         if stop_token_reached.all().item():
             break
