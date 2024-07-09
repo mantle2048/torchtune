@@ -119,15 +119,10 @@ class MMInferenceRecipe:
         )
         prompt = torch.tensor(tokens, dtype=torch.int, device=self._device)
 
-        custom_generate_next_token = None
-
         # since quantized model uses torch.compile to get speedup, it needs a warm up / prefill run
         # to get the accurate performance measurement
         if self._quantization_mode is not None:
             logger.info("Starting compilation to improve generation performance ...")
-            custom_generate_next_token = torch.compile(
-                custom_generate_next_token, mode="max-autotune", fullgraph=True
-            )
             t0 = time.perf_counter()
             _ = chameleon_generate(
                 model=self._model,
@@ -137,7 +132,6 @@ class MMInferenceRecipe:
                 stop_tokens=self._token_manager.stop_tokens,
                 pad_id=self._token_manager.vocab.pad_id,
                 vocab=self._token_manager.vocab,
-                custom_generate_next_token=custom_generate_next_token,
             )
             t = time.perf_counter() - t0
             logger.info(f"Warmup run for quantized model takes: {t:.02f} sec")
@@ -151,7 +145,6 @@ class MMInferenceRecipe:
             stop_tokens=self._token_manager.stop_tokens,
             pad_id=self._token_manager.vocab.pad_id,
             vocab=self._token_manager.vocab,
-            custom_generate_next_token=custom_generate_next_token,
         )
         t = time.perf_counter() - t0
 

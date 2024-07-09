@@ -14,7 +14,7 @@ checkpointer:
   output_dir: /tmp/chameleon-7b/
   model_type: CHAMELEON
 
-device: cpu
+device: cuda
 dtype: bf16
 
 seed: 1234
