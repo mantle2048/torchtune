@@ -4,9 +4,10 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Callable, List, Optional
+from typing import Callable
 
 import torch
+from omegaconf import DictConfig
 from torch import Tensor
 
 from torchtune.models.chameleon._vocab import VocabInfo
@@ -22,6 +23,13 @@ def allowed_modality_logits_process(
         token_ids = [vocab.eos_id] + vocab.text_tokens + [vocab.begin_image]
     elif modality == "image":
         token_ids = vocab.image_tokens
+    elif modality == "mix":
+        token_ids = (
+            [vocab.eos_id]
+            + [vocab.begin_image]
+            + vocab.text_tokens
+            + vocab.image_tokens
+        )
     else:
         raise ValueError(f"Disallowed Modality {modality}")
 
@@ -44,7 +52,7 @@ def multinomial_sample_one(probs: torch.Tensor) -> torch.Tensor:
 
 
 def sample(
-    logits: torch.Tensor, temperature: float = 1.0, top_k: Optional[int] = None
+    logits: torch.Tensor, top_k: int | None, temperature: float = 1.0
 ) -> torch.Tensor:
     """Generic sample from a probability distribution."""
     # scale the logits based on temperature
@@ -67,9 +75,9 @@ def generate_next_token(
     x: torch.Tensor,
     vocab: VocabInfo,
     modality: str,
+    top_k: int | None,
     image_gen_count: int = 0,
     temperature: float = 1.0,
-    top_k: Optional[int] = None,
 ) -> torch.Tensor:
     """Generates the next tokens."""
     # model produces logits in [bsz, seq_length, vocab_size]
@@ -82,9 +90,9 @@ def generate_next_token(
 
     logits = allowed_modality_logits_process(logits, vocab, modality)
     if x.shape[1] >= 4096 - (1024 + 2):
-        disallow_begin_image_logits_process(logits, vocab)
+        logits = disallow_begin_image_logits_process(logits, vocab)
 
-    return sample(logits, temperature, top_k)
+    return sample(logits, temperature=temperature, top_k=top_k)
 
 
 def update_stop_tokens_tracker(
@@ -106,17 +114,14 @@ def generate(
     *,
     max_generated_tokens: int,
     vocab: VocabInfo,
-    pad_id: int = 0,
-    temperature: float = 1.0,
-    top_k: Optional[int] = None,
-    stop_tokens: Optional[torch.Tensor] = None,
-    custom_generate_next_token: Optional[Callable] = None,
-) -> List[List[int]]:
+    options: DictConfig,
+    pad_id: int,
+    stop_tokens: torch.Tensor,
+    custom_generate_next_token: Callable | None = None,  # type: ignore[reportMissingTypeArgument]
+) -> list[list[int]]:
     prompt = prompt.view(1, -1) if prompt.ndim == 1 else prompt
     # convert stop tokens to tensor for easy matching
-    stop_tokens = (
-        torch.tensor(stop_tokens, device=prompt.device) if stop_tokens else None
-    )
+    stop_tokens = torch.tensor(stop_tokens, device=prompt.device)
     bsz, prompt_length = prompt.size()
     generated_tokens = prompt.clone()
     # keeps track at a high level if we've already hit a stop token in a sequence so we can early stop
@@ -130,7 +135,14 @@ def generate(
     if custom_generate_next_token is None:
         custom_generate_next_token = generate_next_token
 
-    modality = "text"
+    if not options.image.enable and options.text.enable:
+        modality = "text"
+    elif options.image.enable and not options.text.enable:
+        modality = "image"
+    elif options.image.enable and options.text.enable:
+        modality = "mix"
+    else:
+        raise ValueError("Should enable at least one modality (text, image).")
     image_gen_count = 0
 
     # generate the first tokens conditioned on the prompt
@@ -138,46 +150,49 @@ def generate(
         model,
         input_pos=torch.arange(0, prompt_length, device=prompt.device),
         x=prompt,
-        temperature=temperature,
+        temperature=options[modality]["temperature"],
+        top_k=options[modality]["top_k"],
         image_gen_count=image_gen_count,
-        top_k=top_k,
         vocab=vocab,
         modality=modality,
     )
     generated_tokens = torch.cat([generated_tokens, tokens], dim=-1)
 
-    if modality == "image":
+    if tokens.item() in vocab.image_tokens:
         image_gen_count += 1
-    if tokens.item() == vocab.begin_image:
         modality = "image"
-    elif tokens.item() == vocab.end_image:
-        modality = "text"
+    if tokens.item() == vocab.begin_image:
+        if stop_tokens and vocab.begin_image not in stop_tokens:
+            modality = "image"
+    elif tokens.item() in vocab.image_tokens:
+        image_gen_count += 1
+        modality = "image"
+    else:
+        pass
 
     # stop early if we reach a stop token in every seq
-    if stop_tokens is not None:
-        stop_token_reached = update_stop_tokens_tracker(
-            tokens, stop_tokens, stop_token_reached
-        )
-        if stop_token_reached.all().item():
-            return generated_tokens.tolist()
+    stop_token_reached = update_stop_tokens_tracker(
+        tokens, stop_tokens, stop_token_reached
+    )
+    if stop_token_reached.all().item():
+        return generated_tokens.tolist()
 
     input_pos = torch.tensor([prompt_length], device=prompt.device)
     for _ in range(max_generated_tokens - 1):
         # update stop_token_mask if we reached a stop token in a previous step
         # by appending the logical not of stop_token_reached to the end of the mask
         # reshaped to be bsz first
-        if stop_tokens is not None:
-            stop_token_mask = torch.cat(
-                [stop_token_mask, ~stop_token_reached.reshape(bsz, 1)], dim=-1
-            )
+        stop_token_mask = torch.cat(
+            [stop_token_mask, ~stop_token_reached.reshape(bsz, 1)], dim=-1
+        )
 
         tokens = custom_generate_next_token(
             model,
             input_pos=input_pos,
-            x=tokens,
-            temperature=temperature,
+            x=tokens,  # type: ignore[reportUnknownArgumentType]
+            temperature=options[modality]["temperature"],
+            top_k=options[modality]["top_k"],
             image_gen_count=image_gen_count,
-            top_k=top_k,
             vocab=vocab,
             modality=modality,
         )
@@ -192,18 +207,16 @@ def generate(
         elif tokens.item() == vocab.end_image:
             modality = "text"
 
-        if stop_tokens is not None:
-            stop_token_reached = update_stop_tokens_tracker(
-                tokens, stop_tokens, stop_token_reached
-            )
-            if stop_token_reached.all().item():
-                break
+        stop_token_reached = update_stop_tokens_tracker(
+            tokens, stop_tokens, stop_token_reached  # type: ignore[reportUnknownArgumentType]
+        )
+        if stop_token_reached.all().item():
+            break
 
     # mask out generated tokens in seqs that already hit a stop token
-    if stop_tokens is not None:
-        generated_tokens = generated_tokens * stop_token_mask
-        # if pad_id is not 0, replace 0 with pad_id
-        if pad_id != 0:
-            generated_tokens[generated_tokens == 0] = pad_id
+    generated_tokens = generated_tokens * stop_token_mask
+    # if pad_id is not 0, replace 0 with pad_id
+    if pad_id != 0:
+        generated_tokens[generated_tokens == 0] = pad_id
 
     return generated_tokens.tolist()

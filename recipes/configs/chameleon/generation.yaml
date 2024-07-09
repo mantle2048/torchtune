@@ -33,7 +33,18 @@ prompt: "Hello, my name is"
 instruct_template: null
 chat_format: null
 max_new_tokens: 300
-temperature: 0.6 # 0.8 and 0.6 are popular values to try
-top_k: 300
+
+options:
+  text:
+    temperature: 0.6 # 0.8 and 0.6 are popular values to try
+    top_k: 300
+    enable: true
+
+  image:
+    cfg_scale_text: 3.0
+    cfg_scale_image: 1.2
+    temperature: 0.6 # 0.8 and 0.6 are popular values to try
+    top_k: 300
+    enable: true
 
 quantizer: null

@@ -4,7 +4,6 @@ CKPT_PATH="/nas/shared/GAIR/ckpts/meta-chameleon/meta-chameleon-7b/models/7b"
 
 TOKENIZER_PATH="/nas/shared/GAIR/ckpts/meta-chameleon/meta-chameleon-7b/tokenizer"
 
-QUESTION="Please tell me a short story."
 
 PROMPT='[
     {"type": "image", "value": "file:./data/red_flower.png"},
@@ -12,8 +11,8 @@ PROMPT='[
 ]'
 
 # {"type": "sentinel", "value": "<END-OF-TURN>"}
-PROMPT="Draw a flower."
-PROMPT="Hi, how are you today?"
+# PROMPT="Draw a flower."
+# PROMPT="Hi, how are you today?"
 tune run mm_generate \
   --config "chameleon/generation" \
   model._component_="torchtune.models.chameleon.chameleon_7b" \

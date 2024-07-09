@@ -4,8 +4,6 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Optional
-
 from torch import Tensor, nn
 
 from torchtune.modules.attention import CausalSelfAttention
@@ -24,7 +22,7 @@ class ChameleonCausalSelfAttention(CausalSelfAttention):
         v_proj: nn.Module,
         output_proj: nn.Module,
         pos_embeddings: nn.Module,
-        kv_cache: Optional[KVCache] = None,
+        kv_cache: KVCache | None,
         max_seq_len: int = 4096,
         attn_dropout: float = 0.0,
         qk_normalization: bool = False,
@@ -70,8 +68,8 @@ class ChameleonCausalSelfAttention(CausalSelfAttention):
         self,
         x: Tensor,
         *,
-        mask: Optional[Tensor] = None,
-        input_pos: Optional[Tensor] = None,
+        mask: Tensor | None,
+        input_pos: Tensor | None,
     ) -> Tensor:
         """
         Args:

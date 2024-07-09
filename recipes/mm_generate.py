@@ -4,9 +4,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 import itertools
-import sys
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import torch
 from omegaconf import DictConfig, ListConfig
@@ -27,7 +26,7 @@ class MMInferenceRecipe:
         self._quantizer = config.instantiate(cfg.quantizer)
         self._quantization_mode = utils.get_quantizer_mode(self._quantizer)
 
-        utils.set_seed(seed=cfg.seed)
+        _ = utils.set_seed(seed=cfg.seed)
 
     def setup(self, cfg: DictConfig) -> None:
         checkpointer = config.instantiate(cfg.checkpointer)
@@ -41,17 +40,17 @@ class MMInferenceRecipe:
 
         self._model = self._setup_model(
             model_cfg=cfg.model,
-            model_state_dict=ckpt_dict[utils.MODEL_KEY],
+            model_state_dict=ckpt_dict[utils.constants.MODEL_KEY],
         )
-        import ipdb
-
-        ipdb.set_trace()
         self._token_manager = config.instantiate(cfg.token_manager)
+        self._options = cfg.options
+        if not self._options.image.enable and self._options.text.enable:
+            self._token_manager.stop_tokens.append(self._token_manager.vocab.eos_id)
 
     def _setup_model(
         self,
         model_cfg: DictConfig,
-        model_state_dict: Dict[str, Any],
+        model_state_dict: dict[str, Any],
     ) -> TransformerDecoder:
         with utils.set_default_dtype(self._dtype), self._device:
             model = config.instantiate(model_cfg)
@@ -74,10 +73,10 @@ class MMInferenceRecipe:
 
     def convert_prompt_to_tokens(
         self,
-        prompt: Union[DictConfig, ListConfig, str],
-        chat_format_name: Optional[str],  # ChatFormat
-        instruct_template_name: Optional[str],  # InstructTemplate
-    ) -> List[int]:
+        prompt: DictConfig | ListConfig | str,
+        chat_format_name: str | None,  # ChatFormat
+        instruct_template_name: str | None,  # InstructTemplate
+    ) -> list[int]:
         # Should only be chat-style prompt or instruct-style prompt
         if chat_format_name and instruct_template_name:
             raise ValueError(
@@ -134,8 +133,7 @@ class MMInferenceRecipe:
                 model=self._model,
                 prompt=prompt,
                 max_generated_tokens=2,
-                temperature=cfg.temperature,
-                top_k=cfg.top_k,
+                options=self._options,
                 stop_tokens=self._token_manager.stop_tokens,
                 pad_id=self._token_manager.vocab.pad_id,
                 vocab=self._token_manager.vocab,
@@ -149,8 +147,7 @@ class MMInferenceRecipe:
             model=self._model,
             prompt=prompt,
             max_generated_tokens=cfg.max_new_tokens,
-            temperature=cfg.temperature,
-            top_k=cfg.top_k,
+            options=self._options,
             stop_tokens=self._token_manager.stop_tokens,
             pad_id=self._token_manager.vocab.pad_id,
             vocab=self._token_manager.vocab,
@@ -187,4 +184,4 @@ def main(cfg: DictConfig) -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())  # type: ignore
+    main()  # type: ignore[reportCallIssue]
