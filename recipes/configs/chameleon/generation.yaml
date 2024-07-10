@@ -38,13 +38,13 @@ options:
   text:
     temperature: 0.6 # 0.8 and 0.6 are popular values to try
     top_k: 300
-    enable: true
+    enable: false
 
   image:
     cfg_scale_text: 3.0
     cfg_scale_image: 1.2
     temperature: 0.6 # 0.8 and 0.6 are popular values to try
     top_k: 300
-    enable: false
+    enable: true
 
 quantizer: null

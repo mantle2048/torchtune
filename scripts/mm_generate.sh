@@ -11,7 +11,7 @@ PROMPT='[
 ]'
 
 # {"type": "sentinel", "value": "<END-OF-TURN>"}
-# PROMPT="Draw a flower."
+PROMPT="Draw a flower."
 # PROMPT="Hi, how are you today?"
 tune run mm_generate \
   --config "chameleon/generation" \

@@ -148,7 +148,11 @@ class MMInferenceRecipe:
         )
         t = time.perf_counter() - t0
 
-        logger.info(self._token_manager.decode_text(generated_tokens))
+        # logger.info(self._token_manager.decode_text(generated_tokens))
+        import ipdb
+
+        ipdb.set_trace()
+        self._token_manager.decode_image(generated_tokens)
 
         model_size = sum(
             [
