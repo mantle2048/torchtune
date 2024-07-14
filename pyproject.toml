@@ -10,8 +10,6 @@ authors = [
 ]
 keywords = ["pytorch", "finetuning", "llm"]
 dependencies = [
-    # multimodality
-    "torchvision",
 
     # Hugging Face integrations
     "datasets",
@@ -68,7 +66,7 @@ where = [""]
 include = ["torchtune*", "recipes*"]
 
 [tool.setuptools.package-data]
-recipes = ["configs/*.yaml", "configs/*/*.yaml"]
+recipes = ["configs/*.yaml", "configs/*/*.yaml", "configs/*/*/*.yaml"]
 
 
 # ---- Tooling specifications ---- #

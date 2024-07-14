@@ -18,7 +18,6 @@ from ._model_builders import (  # noqa
     qlora_llama2_70b,
     tinyllama,
 )
-from ._model_utils import scale_hidden_dim_for_mlp
 from ._tokenizer import Llama2Tokenizer
 
 __all__ = [
@@ -36,5 +35,4 @@ __all__ = [
     "qlora_llama2_13b",
     "qlora_llama2_70b",
     "qlora_llama2_7b",
-    "scale_hidden_dim_for_mlp",
 ]
