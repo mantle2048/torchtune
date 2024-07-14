@@ -10,11 +10,10 @@ TOKENIZER_PATH="/nas/shared/GAIR/ckpts/Anole-7b-v0.1/tokenizer"
 #     {"type": "text", "value": "Tell me the color of the flower?"},
 # ]'
 
-PROMPT='[
-    {"type": "text", "value": "Draw a red flower."},
-]'
-    # {"type": "sentinel", "value": "<END-OF-TURN>"}
-# PROMPT="Hi, how are you today?"
+PROMPT="[
+  {'type': 'text', 'value': 'A bustling downtown street in Tokyo at night, with neon signs, crowded sidewalks, and tall skyscrapers.'},
+  {'type': 'sentinel', 'value': '<END-OF-TURN>'}
+]"
 tune run mm_generate \
   --config "chameleon/generation" \
   model._component_="torchtune.models.chameleon.chameleon_7b" \

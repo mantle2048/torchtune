@@ -37,15 +37,17 @@ max_new_tokens: 300
 
 options:
   text:
-    temperature: 0.6 # 0.8 and 0.6 are popular values to try
-    top_k: 300
+    temperature: 0.7 # 0.8 and 0.6 are popular values to try
+    top_k: null
+    top_p: 0.9
     enable: true
 
   image:
     cfg_scale_text: 3.0
     cfg_scale_image: 1.2
-    temperature: 0.7 # 0.8 and 0.6 are popular values to try
-    top_k: 300
+    temperature: 0.9 # 0.8 and 0.6 are popular values to try
+    top_k: null
+    top_p: 0.9
     enable: true
 
 quantizer: null

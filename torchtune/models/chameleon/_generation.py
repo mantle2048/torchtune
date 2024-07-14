@@ -129,7 +129,7 @@ def multinomial_sample_one(probs: torch.Tensor) -> torch.Tensor:
 
 
 def sample(
-    logits: torch.Tensor, top_k: int | None, temperature: float = 1.0
+    logits: torch.Tensor, top_k: int | None, top_p: int | None, temperature: float = 1.0
 ) -> torch.Tensor:
     """Generic sample from a probability distribution."""
     # scale the logits based on temperature
@@ -143,7 +143,17 @@ def sample(
         logits = torch.where(logits < pivot, -float("Inf"), logits)
     # change logits into probabilities
     probs = torch.nn.functional.softmax(logits, dim=-1)
-    return multinomial_sample_one(probs)
+    if top_p is not None:
+        probs_sort, probs_idx = torch.sort(probs, dim=-1, descending=True)
+        probs_sum = torch.cumsum(probs_sort, dim=-1)
+        mask = probs_sum - probs_sort > top_p
+        probs_sort[mask] = 0.0
+        _ = probs_sort.div_(probs_sort.sum(dim=-1, keepdim=True))
+        next_token = torch.multinomial(probs_sort, num_samples=1)
+        next_token = torch.gather(probs_idx, -1, next_token)
+        return next_token
+    else:
+        return multinomial_sample_one(probs)
 
 
 def generate_next_token(
@@ -162,7 +172,7 @@ def generate_next_token(
 
     if modality == "image":
         logits = in_batch_instruct_cfg_logits_process(
-            x, logits, option.cfg_scale_text, option.cfg_scale_text
+            x, logits, option.cfg_scale_text, option.cfg_scale_image
         )
     logits = allowed_modality_logits_process(logits, vocab, modality)
 
@@ -173,9 +183,11 @@ def generate_next_token(
     if x.shape[1] >= 4096 - (1024 + 2):
         logits = disallow_begin_image_logits_process(logits, vocab)
 
-    selected_tokens = sample(logits, temperature=option.temperature, top_k=option.top_k)
-    # if (bsz := selected_tokens.size(0)) > 1:
-    #     selected_tokens = selected_tokens.chunk(bsz)[0]
+    selected_tokens = sample(
+        logits, temperature=option.temperature, top_k=option.top_k, top_p=option.top_p
+    )
+    selected_tokens[1] = selected_tokens[0]
+    selected_tokens[2] = selected_tokens[0]
     return selected_tokens
 
 
