@@ -11,8 +11,6 @@ import torch
 from omegaconf import DictConfig, ListConfig
 
 from torchtune import config, utils
-from torchtune.config._utils import _get_component_from_path
-from torchtune.data import ChatFormat, InstructTemplate, Message
 from torchtune.models.chameleon._generation import generate as chameleon_generate
 from torchtune.modules.transformer import TransformerDecoder
 
@@ -44,8 +42,6 @@ class MMInferenceRecipe:
         )
         self._token_manager = config.instantiate(cfg.token_manager)
         self._options = cfg.options
-        if not self._options.image.enable and self._options.text.enable:
-            self._token_manager.stop_tokens.append(self._token_manager.vocab.eos_id)
 
     def _setup_model(
         self,
@@ -67,57 +63,25 @@ class MMInferenceRecipe:
 
         # Ensure the cache is setup on the right device
         with self._device:
-            model.setup_caches(batch_size=1, dtype=self._dtype)
+            model.setup_caches(batch_size=3, dtype=self._dtype)
 
         return model
 
-    def convert_prompt_to_tokens(
+    def convert_prompts_to_list_of_tokens(
         self,
-        prompt: DictConfig | ListConfig | str,
-        chat_format_name: str | None,  # ChatFormat
-        instruct_template_name: str | None,  # InstructTemplate
-    ) -> list[int]:
-        # Should only be chat-style prompt or instruct-style prompt
-        if chat_format_name and instruct_template_name:
-            raise ValueError(
-                "Cannot pass both chat format and instruct template for generation"
-            )
-
-        # If instruct template is provided, assert that the prompt is a DictConfig
-        # and apply it
-        if instruct_template_name:
-            if not isinstance(prompt, DictConfig):
-                raise ValueError("Cannot apply instruct template to raw string")
-            instruct_template = _get_component_from_path(instruct_template_name)
-            assert isinstance(instruct_template, InstructTemplate)
-            prompt = instruct_template.format(prompt)
-
-        # To hit this block, either the raw prompt is a string or an
-        # instruct template has been provided to convert it to a string
-        if isinstance(prompt, str):
-            return [
-                self._token_manager.vocab.bos_id
-            ] + self._token_manager.tokenize_text(prompt)
-
-        # dict.items() will respect order for Python >= 3.7
-        elif isinstance(prompt, DictConfig):
-            messages = [Message(role=k, content=v) for k, v in prompt.items()]  # type: ignore[reportArgumentType]
-            messages += [Message(role="assistant", content="")]
-            if chat_format_name:
-                chat_format = _get_component_from_path(chat_format_name)
-                assert isinstance(chat_format, ChatFormat)
-                messages = chat_format.format(messages)
-            return self._token_manager.tokenize_messages(messages)[0]
-
-        else:
-            return self._token_manager.tokens_from_ui(prompt)
+        prompt_list: ListConfig,
+    ) -> list[list[int]]:
+        prompts: list[dict[str, str]] | list[list[dict[str, str]]] = list(prompt_list)
+        if not isinstance(prompts[0], list):
+            prompts = [prompts]
+        list_of_tokens = [
+            self._token_manager.tokens_from_ui(prompt) for prompt in prompts
+        ]
+        return list_of_tokens
 
     @torch.no_grad()
     def generate(self, cfg: DictConfig):
-        tokens = self.convert_prompt_to_tokens(
-            cfg.prompt, cfg.get("chat_format", None), cfg.get("instruct_template", None)
-        )
-        prompt = torch.tensor(tokens, dtype=torch.int, device=self._device)
+        list_of_tokens = self.convert_prompts_to_list_of_tokens(cfg.prompts)
 
         # since quantized model uses torch.compile to get speedup, it needs a warm up / prefill run
         # to get the accurate performance measurement
@@ -126,12 +90,12 @@ class MMInferenceRecipe:
             t0 = time.perf_counter()
             _ = chameleon_generate(
                 model=self._model,
-                prompt=prompt,
+                list_of_tokens=list_of_tokens,
                 max_generated_tokens=2,
                 options=self._options,
-                stop_tokens=self._token_manager.stop_tokens,
-                pad_id=self._token_manager.vocab.pad_id,
+                stop_token_list=self._token_manager.stop_tokens,
                 vocab=self._token_manager.vocab,
+                device=self._device,
             )
             t = time.perf_counter() - t0
             logger.info(f"Warmup run for quantized model takes: {t:.02f} sec")
@@ -139,20 +103,26 @@ class MMInferenceRecipe:
         t0 = time.perf_counter()
         generated_tokens = chameleon_generate(
             model=self._model,
-            prompt=prompt,
+            list_of_tokens=list_of_tokens,
             max_generated_tokens=cfg.max_new_tokens,
             options=self._options,
-            stop_tokens=self._token_manager.stop_tokens,
-            pad_id=self._token_manager.vocab.pad_id,
+            stop_token_list=self._token_manager.stop_tokens,
             vocab=self._token_manager.vocab,
+            device=self._device,
         )
         t = time.perf_counter() - t0
 
         # logger.info(self._token_manager.decode_text(generated_tokens))
-        import ipdb
-
-        ipdb.set_trace()
-        self._token_manager.decode_image(generated_tokens)
+        image_tokens: list[int] = []
+        for token in generated_tokens[1]:
+            if token in self._token_manager.vocab.image_tokens:
+                image_tokens.append(token)
+            if len(image_tokens) == 1024:
+                break
+        generated_tokens = torch.tensor([image_tokens], device=self._device)
+        images = self._token_manager.decode_image(generated_tokens)
+        # seems that text instruction is not work
+        images[0].save("data/test.png")
 
         model_size = sum(
             [
@@ -163,7 +133,7 @@ class MMInferenceRecipe:
             ]
         )
 
-        tokens_generated = len(generated_tokens[0]) - prompt.size(0)
+        tokens_generated = len(generated_tokens[0]) - len(list_of_tokens[0])
         tokens_sec = tokens_generated / t
         logger.info(
             f"Time for inference: {t:.02f} sec total, {tokens_sec:.02f} tokens/sec"

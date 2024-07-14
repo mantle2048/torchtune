@@ -66,7 +66,7 @@ class ChameleonTokenManager:
         image_file = io.BytesIO(image_data)
         return self.tokenize_image(Image.open(image_file))
 
-    def tokens_from_ui(self, inputs: list[dict]) -> list[int]:
+    def tokens_from_ui(self, inputs: list[dict[str, str]]) -> list[int]:
         tokens = [self.vocab.bos_id]
         for input_ in inputs:
             if input_["type"] == "text":
@@ -113,3 +113,6 @@ class ChameleonTokenManager:
 
     def decode_image(self, ids: torch.LongTensor) -> list[Image.Image]:
         return [self.pil_from_bpe_tokens(sample) for sample in ids]
+
+    def decode(self, ids: torch.Tensor):
+        pass
