@@ -125,9 +125,11 @@ class ChameleonTokenManager:
                     image_tokens.append(token)
                 else:
                     text_tokens.append(token)
-            texts.append(self.text_tokenizer.decode(text_tokens))
-            texts = [text for text in texts if text]
-            images.append(
-                self.pil_from_bpe_tokens(torch.tensor(image_tokens, device=device))
-            )
+            if text_tokens:
+                texts.append(self.text_tokenizer.decode(text_tokens))
+            if image_tokens:
+                images.append(
+                    self.pil_from_bpe_tokens(torch.tensor(image_tokens, device=device))
+                )
+        texts = [text for text in texts if text]
         return texts, images

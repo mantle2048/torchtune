@@ -113,7 +113,10 @@ class MMInferenceRecipe:
         )
         t = time.perf_counter() - t0
 
-        texts, images = self._token_manager.decode(generated_tokens, self._device)
+        new_tokens = []
+        for idx, tokens in enumerate(list_of_tokens):
+            new_tokens.append(generated_tokens[idx][len(tokens) :])
+        texts, images = self._token_manager.decode(new_tokens, self._device)
 
         for text in texts:
             logger.info(text)

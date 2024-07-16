@@ -4,11 +4,11 @@ CKPT_PATH="/nas/shared/GAIR/ckpts/Anole-7b-v0.1/models/7b"
 
 TOKENIZER_PATH="/nas/shared/GAIR/ckpts/Anole-7b-v0.1/tokenizer"
 
-# PROMPT="[
-#     {'type': 'text', 'value': 'Tell me the color of the flower?'},
-#     {'type': 'image', 'value': 'file:./data/red_flower.png'},
-#     {'type': 'sentinel', 'value': '<END-OF-TURN>'}
-# ]"
+PROMPT="[
+    {'type': 'text', 'value': 'Tell me the color of the flower?'},
+    {'type': 'image', 'value': 'file:./data/red_flower.png'},
+    {'type': 'sentinel', 'value': '<END-OF-TURN>'}
+]"
 
 PROMPT="[
   {'type': 'text', 'value': 'A vibrant coral reef teeming with colorful fish, sea turtles gliding through the water, and sunlight filtering down from the surface.'},
