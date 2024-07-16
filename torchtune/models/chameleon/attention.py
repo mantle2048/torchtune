@@ -178,7 +178,7 @@ class ChameleonCausalSelfAttention(CausalSelfAttention):
             attn_mask=mask,
             dropout_p=self.attn_dropout,
             is_causal=self.kv_cache is None and mask is None,
-        )
+        )[:bsz]
 
         # reshape the output to be the same shape as the input
         output = output.transpose(1, 2).contiguous().view(bsz, seq_len, -1)

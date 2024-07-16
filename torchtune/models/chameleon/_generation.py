@@ -36,7 +36,7 @@ def disallow_begin_image_logits_process(logits: Tensor, vocab: VocabInfo) -> Ten
     return logits
 
 
-def split_inputs_for_cfg_v1(
+def split_inputs_for_cfg(
     list_of_tokens: list[list[int]], vocab: VocabInfo
 ) -> list[list[int]]:
     batch_size = len(list_of_tokens)
@@ -56,48 +56,6 @@ def split_inputs_for_cfg_v1(
     unconditioned = [[vocab.bos_id, vocab.begin_image]] * batch_size
 
     return full_conditioned + image_conditioned + unconditioned
-
-
-def split_inputs_for_cfg(input_ids: torch.Tensor, vocab: VocabInfo) -> torch.Tensor:
-    batch_size = input_ids.size(0)
-    image_conditioned_allowed = set(vocab.image_tokens) | {
-        vocab.bos_id,
-        vocab.begin_image,
-        vocab.end_image,
-    }
-
-    full_conditioned = input_ids
-
-    image_conditioned = torch.tensor(
-        [
-            [id for id in sample if id.item() in image_conditioned_allowed]
-            for sample in input_ids
-        ],
-        device=input_ids.device,
-    )
-    # Create unconditioned tokens tensor
-    unconditioned = torch.tensor(
-        [[vocab.bos_id, vocab.begin_image]] * batch_size, device=input_ids.device
-    )
-
-    max_length = max(
-        full_conditioned.size(1), image_conditioned.size(1), unconditioned.size(1)
-    )
-
-    def pad_left(tensor: torch.Tensor, max_length: int):
-        pad_size = max_length - tensor.size(1)
-        return torch.nn.functional.pad(tensor, (pad_size, 0), "constant", vocab.pad_id)
-
-    result = torch.cat(
-        (
-            pad_left(full_conditioned, max_length),
-            pad_left(image_conditioned, max_length),
-            pad_left(unconditioned, max_length),
-        ),
-        dim=0,
-    )
-
-    return result
 
 
 def in_batch_instruct_cfg_logits_process(
@@ -120,12 +78,6 @@ def in_batch_instruct_cfg_logits_process(
         + guidance_scale_text * (full_conditioned_logits - image_conditioned_logits)
     )
     return mixed_logits.repeat(3, 1)
-
-
-def multinomial_sample_one(probs: torch.Tensor) -> torch.Tensor:
-    """Samples from a multinomial distribution."""
-    q = torch.empty_like(probs).exponential_(1)
-    return torch.argmax(probs / q, dim=-1, keepdim=True).to(dtype=torch.int)
 
 
 def sample(
@@ -153,7 +105,7 @@ def sample(
         next_token = torch.gather(probs_idx, -1, next_token)
         return next_token
     else:
-        return multinomial_sample_one(probs)
+        return torch.multinomial(probs, num_samples=1)
 
 
 def generate_next_token(
@@ -184,15 +136,21 @@ def generate_next_token(
         logits = disallow_begin_image_logits_process(logits, vocab)
 
     selected_tokens = sample(
-        logits, temperature=option.temperature, top_k=option.top_k, top_p=option.top_p
+        logits,
+        temperature=option.temperature,
+        top_k=option.top_k,
+        top_p=option.top_p,
     )
-    selected_tokens[1] = selected_tokens[0]
-    selected_tokens[2] = selected_tokens[0]
+    if selected_tokens.size(0) > 1:
+        selected_tokens[1] = selected_tokens[0]
+        selected_tokens[2] = selected_tokens[0]
     return selected_tokens
 
 
 def update_stop_tokens_tracker(
-    tokens: torch.Tensor, stop_tokens: torch.Tensor, stop_token_reached: torch.Tensor
+    tokens: torch.Tensor,
+    stop_tokens: torch.Tensor,
+    stop_token_reached: torch.Tensor,
 ) -> torch.Tensor:
     """Updates which sequences have reached a stop token."""
     # tokens: [bsz, 1]
@@ -215,20 +173,22 @@ def generate(
     stop_token_list: list[int],
     device: torch.device,
 ) -> list[list[int]]:
-    if not options.text.enable and options.image.enable:  # image modality only
-        modality = "image"
+    original_bsz = len(list_of_tokens)
+
+    if options.image.enable:  # image modality only
         max_generated_tokens = 1024
         for tokens in list_of_tokens:
             if tokens[-1] != vocab.begin_image:
                 tokens.append(vocab.begin_image)
-        list_of_tokens = split_inputs_for_cfg_v1(list_of_tokens, vocab)
-    elif options.text.enable and not options.image.enable:  # text modality only
-        stop_token_list += [vocab.boi_id]
-        modality = "text"
-    elif options.text.enable and options.image.enable:  # mix modality
-        modality = "text"
+        list_of_tokens = split_inputs_for_cfg(list_of_tokens, vocab)
+        modality = "image" if not options.text.enable else "text"
+
     else:
-        raise ValueError("Must enable at least one modality [image or text] !")
+        if options.text.enable:  # text modality only
+            stop_token_list += [vocab.boi_id]
+            modality = "text"
+        else:
+            raise ValueError("Must enable at least one modality [image or text] !")
 
     max_length = max(len(tokens) for tokens in list_of_tokens)
     list_of_tokens = [
@@ -325,4 +285,5 @@ def generate(
     if vocab.pad_id != 0:
         generated_tokens[generated_tokens == 0] = vocab.pad_id
 
+    generated_tokens = generated_tokens.chunk(bsz // original_bsz)[0]
     return generated_tokens.tolist()

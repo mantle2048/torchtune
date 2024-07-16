@@ -63,6 +63,7 @@ class MMInferenceRecipe:
 
         # Ensure the cache is setup on the right device
         with self._device:
+            # kv_cache batch_size = 3 for instruct cfg
             model.setup_caches(batch_size=3, dtype=self._dtype)
 
         return model
@@ -112,17 +113,15 @@ class MMInferenceRecipe:
         )
         t = time.perf_counter() - t0
 
-        # logger.info(self._token_manager.decode_text(generated_tokens))
-        image_tokens: list[int] = []
-        for token in generated_tokens[1]:
-            if token in self._token_manager.vocab.image_tokens:
-                image_tokens.append(token)
-            if len(image_tokens) == 1024:
-                break
-        generated_tokens = torch.tensor([image_tokens], device=self._device)
-        images = self._token_manager.decode_image(generated_tokens)
-        # seems that text instruction is not work
-        images[0].save("data/test.png")
+        texts, images = self._token_manager.decode(generated_tokens, self._device)
+
+        for text in texts:
+            logger.info(text)
+
+        for idx, image in enumerate(images):
+            image_path = f"data/image{idx}.png"
+            logger.info(f"saving image to {image_path}")
+            image.save(image_path)
 
         model_size = sum(
             [

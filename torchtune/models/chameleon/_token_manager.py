@@ -93,8 +93,6 @@ class ChameleonTokenManager:
                         "<END-OF-TURN>": self.vocab.eot_id,
                     }[input_["value"]]
                 ]
-            elif input_["type"] == "ids":
-                tokens += input_["value"]
             else:
                 raise ValueError("Unknown input type.")
         return tokens
@@ -114,5 +112,22 @@ class ChameleonTokenManager:
     def decode_image(self, ids: torch.LongTensor) -> list[Image.Image]:
         return [self.pil_from_bpe_tokens(sample) for sample in ids]
 
-    def decode(self, ids: torch.Tensor):
-        pass
+    def decode(
+        self,
+        list_of_tokens: list[list[int]],
+        device: torch.device,
+    ) -> tuple[list[str], list[Image.Image]]:
+        texts, images = [], []
+        for tokens in list_of_tokens:
+            text_tokens, image_tokens = [], []
+            for token in tokens:
+                if token in self.vocab.image_tokens:
+                    image_tokens.append(token)
+                else:
+                    text_tokens.append(token)
+            texts.append(self.text_tokenizer.decode(text_tokens))
+            texts = [text for text in texts if text]
+            images.append(
+                self.pil_from_bpe_tokens(torch.tensor(image_tokens, device=device))
+            )
+        return texts, images
