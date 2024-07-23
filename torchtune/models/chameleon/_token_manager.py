@@ -1,10 +1,13 @@
 import base64
 import io
 import json
+from typing import Optional
 
 import torch
 from PIL import Image
 
+from torchtune.data import Message
+from torchtune.data._utils import truncate
 from torchtune.models.chameleon._image_tokenizer import ChameleonImageTokenizer
 from torchtune.models.chameleon._text_tokenizer import ChameleonTextTokenizer
 from torchtune.models.chameleon._vocab import VocabInfo, VocabTranslation
@@ -70,7 +73,7 @@ class ChameleonTokenManager:
         tokens = [self.vocab.bos_id]
         for input_ in inputs:
             if input_["type"] == "text":
-                tokens += self.tokenize_text(input_["value"])
+                tokens += self.tokenize_text(input_["value"].strip())
             elif input_["type"] == "image":
                 if isinstance(input_["value"], str):
                     if input_["value"].startswith("data:"):
@@ -92,6 +95,39 @@ class ChameleonTokenManager:
                         "<START-OF-IMAGE>": self.vocab.begin_image,
                         "<END-OF-TURN>": self.vocab.eot_id,
                     }[input_["value"]]
+                ]
+            else:
+                raise ValueError("Unknown input type.")
+        return tokens
+
+    def encode(self, inputs: list[dict[str, str]]) -> list[int]:
+        tokens = [self.vocab.bos_id]
+        for input_ in inputs:
+            if input_["type"] == "text":
+                tokens += self.tokenize_text(input_["content"].strip())
+            elif input_["type"] == "image":
+                if isinstance(input_["content"], str):
+                    if input_["content"].startswith("data:"):
+                        # Value Format: 'data:image/[^;]+;base64,[A-Za-z0-9+/]+={0,2}'
+                        tokens += self.tokenize_b64img(
+                            input_["content"].split(",", 1)[1]
+                        )
+                    elif input_["content"].startswith("file:"):
+                        tokens += self.tokenize_image(
+                            Image.open(input_["content"].split(":", 1)[1])
+                        )
+                    else:
+                        raise ValueError("Unknown image format.")
+                elif isinstance(input_["content"], Image):
+                    tokens += self.tokenize_image(input_["content"])
+                else:
+                    raise ValueError("Unknown image type.")
+            elif input_["type"] == "sentinel":
+                tokens += [
+                    {
+                        "<START-OF-IMAGE>": self.vocab.begin_image,
+                        "<END-OF-TURN>": self.vocab.eot_id,
+                    }[input_["content"]]
                 ]
             else:
                 raise ValueError("Unknown input type.")
@@ -133,3 +169,46 @@ class ChameleonTokenManager:
                 )
         texts = [text for text in texts if text]
         return texts, images
+
+    def tokenize_messages(
+        self, messages: list[Message], max_seq_len: Optional[int] = None
+    ) -> tuple[list[int], list[bool]]:
+        start_of_turn = True
+        end_of_turn = False
+        tokenized_messages = []
+        mask = []
+        for message in messages:
+            # If assistant message, this is the end of a turn
+            end_of_turn = message.role == "assistant"
+
+            # Prepend BOS on start of new turns
+            if start_of_turn:
+                tokenized_messages.append(self.vocab.bos_id)
+                mask.append(message.masked)
+
+            # Tokenize current message, append with masks
+            tokens = self.encode(message.content)
+            tokenized_messages.extend(tokens)
+            mask.extend([message.masked] * len(tokens))
+
+            # If assistant message, append EOS at end
+            if end_of_turn:
+                tokenized_messages.append(self.vocab.eos_id)
+                mask.append(message.masked)
+                end_of_turn = False
+                start_of_turn = True
+            else:
+                start_of_turn = False
+
+            # Break out early if we reach max_seq_len
+            if max_seq_len and len(tokenized_messages) >= max_seq_len:
+                break
+
+        # Finally, truncate if necessary
+        if max_seq_len:
+            tokenized_messages = truncate(
+                tokenized_messages, max_seq_len, self.vocab.eos_id
+            )
+            mask = truncate(mask, max_seq_len, message.masked)
+
+        return tokenized_messages, mask

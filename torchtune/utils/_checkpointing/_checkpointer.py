@@ -687,7 +687,7 @@ class FullModelMetaCheckpointer(_CheckpointerInterface):
         """
         self._output_dir.mkdir(exist_ok=True)
         model_state_dict = state_dict[utils.MODEL_KEY]
-        if self._model_type == ModelType.CHAMELEMON:
+        if self._model_type == ModelType.CHAMELEON:
             state_dict[utils.MODEL_KEY] = chameleon_tune_to_meta(model_state_dict)
         else:
             state_dict[utils.MODEL_KEY] = convert_weights.tune_to_meta(model_state_dict)

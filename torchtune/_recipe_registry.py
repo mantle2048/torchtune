@@ -67,6 +67,12 @@ _ALL_RECIPES = [
         supports_distributed=True,
     ),
     Recipe(
+        name="mm_full_finetune_distributed",
+        file_path="mm_full_finetune_distributed.py",
+        configs=[Config(name="chameleon/7B_full", file_path="chameleon/7B_full.yaml")],
+        supports_distributed=True,
+    ),
+    Recipe(
         name="lora_finetune_single_device",
         file_path="lora_finetune_single_device.py",
         configs=[
